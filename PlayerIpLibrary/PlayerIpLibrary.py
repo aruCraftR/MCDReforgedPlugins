@@ -16,7 +16,7 @@ PLUGIN_METADATA = {
 	'name': 'PlayerIpLibrary',
 	'description': 'Manage player IP',
 	'author': 'sophie_desu',
-	'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/PlayerIpLibrary',
+	'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/PlayerIpLibrary',
 	'dependencies': {
 		'config_api': '*',
 		'json_data_api': '*'
