@@ -172,7 +172,7 @@ def search_api(source, ctx):
 	try:
 		text_list = []
 		for i, j in api['response']:
-			text_list.append(i + j)
+			text_list.append(i + data[j])
 	except Exception as e:
 		print_message(source, f'读取响应信息时出现错误，详细错误[{e}]')
 		print_message(source, f'响应信息：[{data}]')
@@ -331,8 +331,3 @@ default_config = {
 		}
 	}
 }
-
-#'wryqq': {
-#			'url': 'http://cz88.rtbasia.com/search/ip?=[ip]',
-#			'header': ['Authorization', 'APPCODE d840e0f07ad94b488f111e2669e3fe0a']
-#		}
