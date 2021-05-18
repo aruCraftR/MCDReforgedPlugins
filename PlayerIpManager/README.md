@@ -26,7 +26,7 @@ apis:
     - [市：, city]
     - [ISP：, isp]
     url: http://ip-api.com/json/[ip]?lang=zh-CN
-permission_requirement: 3
+permission-requirement: 3
 disable-GeoIP: false
 GeoIP-database-path: ''
 ```
@@ -48,7 +48,7 @@ GeoIP-database-path: ''
 
 用于设置GeoIP数据库文件路径，请使用后缀为`.mmdb`的文件
 
-请自行在网上搜索GeoIP的免费数据库(GeoLite2-city)获取方法
+请自行在网上搜索GeoIP数据库的获取方法(GeoIP有免费数据库：GeoLite2。建议使用city版本)
 
 如果不想费时间去找，可将`disable-GeoIP`选项设置为`true`来关闭GeoIP查询功能
 
