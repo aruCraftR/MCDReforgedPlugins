@@ -13,7 +13,7 @@
 
 ## 配置
 
-配置文件位于 `config\PlayerIpLibrary.yml`
+配置文件位于 `config\PlayerIpManager.yml`
 
 默认配置：
 ```
