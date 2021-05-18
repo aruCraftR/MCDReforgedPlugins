@@ -28,9 +28,9 @@ apis:
     url: http://ip-api.com/json/[ip]?lang=zh-CN
 permission_requirement: 3
 disable-GeoIP: false
-GeoIP-database-path: [请填入GeoIP或GeoLite数据库文件路径(.mmdb)]
+GeoIP-database-path: ''
 ```
-### `permission_requirement`
+### `permission-requirement`
 
 默认值: `3`
 

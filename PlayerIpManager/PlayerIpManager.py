@@ -11,12 +11,12 @@ from ConfigAPI import Config
 
 
 PLUGIN_METADATA = {
-	'id': 'player_ip_library',
-	'version': '0.0.5',
-	'name': 'PlayerIpLibrary',
+	'id': 'player_ip_manager',
+	'version': '0.0.7',
+	'name': 'PlayerIpManager',
 	'description': 'Manage player IP',
 	'author': 'sophie_desu',
-	'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/PlayerIpLibrary',
+	'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/PlayerIpManager',
 	'dependencies': {
 		'config_api': '*',
 		'json_data_api': '*'
@@ -25,7 +25,7 @@ PLUGIN_METADATA = {
 
 Prefix = ['!!ip', '!!ip-segment']
 
-def print_message(source, msg, tell=True, prefix='[IpLibrary] '):
+def print_message(source, msg, tell=True, prefix='[IpManager] '):
 	msg = prefix + str(msg)
 	if source.is_player and not tell:
 		source.get_server().say(msg)
@@ -41,11 +41,13 @@ def on_load(server, old):
 		config = old.config
 	else: 
 		ip_library = Json('data', 'ip_library')
-		config = Config('', default_config, 'ipLibrary')
-		if not config['disable-GeoIP']:
+		config = Config('', default_config, 'PlayerIpManager')
+		if (not config['disable-GeoIP']) or (not config['GeoIP-database-path'] == ''):
 			GeoIP = geoip2_Reader(config['GeoIP-database-path'])
+		else:
+			GeoIP = 'disable'
 		if '#banned-ip-segment' not in ip_library.keys():
-			ip_library['#banned-ip-segment'] = []
+			ip_library['#banned-ip-segment'] = {}
 			ip_library.save()
 	def_help_msg(', '.join(config['apis'].keys()))
 	register_command(server)
@@ -53,19 +55,23 @@ def on_load(server, old):
 
 def on_player_joined(server, player, info):
 	global ip_library
-	address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*:', info.content))
-	if address != 'local': #carpet假人地址为local
-		if player not in ip_library.keys():
-			ip_library[player] = []
-		if address not in ip_library[player]:
-			ip_library[player].append(address)
-			ip_library.save()
+	address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*:', info.content).group())
+	if address == 'local': #carpet假人地址为local
+		return
+	ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
+	if ip_segment in ip_library['#banned-ip-segment'].keys():
+		server.execute('kick ' + player + ' ' + ip_library['#banned-ip-segment'][ip_segment])
+	if player not in ip_library.keys():
+		ip_library[player] = []
+	if address not in ip_library[player]:
+		ip_library[player].append(address)
+		ip_library.save()
 
 def reload_config():
 	global config
 	old_config = config
 	try:
-		config = Config('', default_config, 'ipLibrary')
+		config = Config('', default_config, 'PlayerIpManager')
 		if config['disable-GeoIP'] != old_config['disable-GeoIP']:
 			reload_db()
 		if config['apis'] != old_config['apis']:
@@ -110,7 +116,7 @@ def search_ip(ip):
 		return '没有查询到关联玩家'
 	return '玩家{}使用过{}登入服务器'.format(', '.join(players), ip)
 
-@new_thread('IP-query')
+@new_thread(PLUGIN_METADATA['name'])
 def search_geoip(source, ctx):
 	if config['disable-GeoIP']:
 		print_message(source, 'GeoIP查询未开启')
@@ -120,6 +126,8 @@ def search_geoip(source, ctx):
 		print_message(source, ctx[0])
 		return
 	player, ip, num, reason = ctx
+	if num == 'all':
+		print_message(source, f'ip查询不支持使用参数all，自动选择为0')
 	print_message(source, '正在搜索，请稍等')
 	try:
 		response = GeoIP.city(ip)
@@ -136,7 +144,7 @@ def search_geoip(source, ctx):
 	市：{response.city.names['zh-CN']}
 	""")
 
-@new_thread('IP-query')
+@new_thread(PLUGIN_METADATA['name'])
 def search_api(source, ctx):
 	ctx = ctx_format(ctx, 0)
 	if len(ctx) == 1:
@@ -157,6 +165,8 @@ def search_api(source, ctx):
 			print_message(source, f'所指定的API[{api_name}]的配置文件出现错误({e})')
 			return
 	url = re_sub(r'\[ip\]', ip, url)
+	if num == 'all':
+		print_message(source, f'ip查询不支持使用参数all，自动选择为0')
 	print_message(source, '正在搜索，请稍等')
 	try:
 		request = Request(url)
@@ -182,8 +192,8 @@ def search_api(source, ctx):
 	{}
 	""".format('\n'.join(text_list)))
 
-def execute_cmd(server, cmd, player, num, reason=None):
-	cmd = cmd + ' ' + ip_library[player][num]
+def execute_cmd(server, cmd, ip, reason=None):
+	cmd = cmd + ' ' + ip
 	if reason is not None:
 		cmd = cmd + ' ' + reason
 	server.execute(cmd)
@@ -195,10 +205,10 @@ def ban_ip(server, ctx):
 	player, ip, num, reason = ctx
 	cmd = 'ban-ip'
 	if not num == 'all':
-		execute_cmd(server, cmd, player, num, reason)
+		execute_cmd(server, cmd, ip, reason)
 		return '已完成操作'
-	for i in range(0, len(ip_library[player])):
-		execute_cmd(server, cmd, player, i, reason)
+	for i in ip_library[player]:
+		execute_cmd(server, cmd, i, reason)
 	return '已完成操作'
 
 def unban_ip(server, ctx):
@@ -208,25 +218,46 @@ def unban_ip(server, ctx):
 	player, ip, num, reason = ctx
 	cmd = 'pardon-ip'
 	if not num == 'all':
-		execute_cmd(server, cmd, player, num)
+		execute_cmd(server, cmd, ip, reason)
 		return '已完成操作'
-	for i in range(0, len(ip_library[player])):
-		execute_cmd(server, cmd, player, i)
+	for i in ip_library[player]:
+		execute_cmd(server, cmd, i, reason)
 	return '已完成操作'
 
 def ban_ip_segment(server, ctx):
-	ctx = ctx.split(' ', 1)
-	length = len(ctx)
-	player = ctx[0]
-	if player not in ip_library.keys():
-		return '玩家不存在'
-	if length == 2:
-		reason = ctx[1]
-	else:
+	ctx = ctx_format(ctx)
+	if len(ctx) == 1:
+		return ctx[0]
+	player, ip, num, reason = ctx
+	if reason is None:
 		reason = 'Banned by an operator'
+	server.execute('kick ' + player + ' ' + reason)
+	if not num == 'all':
+		ip_segment = re_search(r'[1-9\.]+(?=\.)', ip).group()
+		ip_library['#banned-ip-segment'][ip_segment] = reason
+		ip_library.save()
+		return '已完成操作'
+	for i in ip_library[player]:
+		ip_segment = re_search(r'[1-9\.]+(?=\.)', i).group()
+		if ip_segment not in ip_library['#banned-ip-segment']:
+			ip_library['#banned-ip-segment'][ip_segment] = reason
+	ip_library.save()
+	return '已完成操作'
 
-	ip_library['#banned-ip-segment'].append() #TODO
-	
+def unban_ip_segment(server, ctx):
+	ctx = ctx_format(ctx)
+	if len(ctx) == 1:
+		return ctx[0]
+	player, ip, num, reason = ctx
+	if not num == 'all':
+		ip_segment = re_search(r'[1-9\.]+(?=\.)', ip).group()
+		del ip_library['#banned-ip-segment'][ip_segment]
+		ip_library.save()
+		return '已完成操作'
+	for i in ip_library[player]:
+		ip_segment = re_search(r'[1-9\.]+(?=\.)', i).group()
+		del ip_library['#banned-ip-segment'][ip_segment]
+		ip_library.save()
 	return '已完成操作'
 
 def ctx_format(ctx, del_num: int = None):
@@ -252,7 +283,10 @@ def ctx_format(ctx, del_num: int = None):
 			return ('参数错误，序号不为纯数字或all',)
 	else:
 		try:
-			ip = ip_library[player][num]
+			if not num == 'all':
+				ip = ip_library[player][num]
+			else:
+				ip = ip_library[player][-1]
 		except IndexError:
 			return ('序号错误，给出的序号不存在',)
 	if length == 3:
@@ -262,14 +296,15 @@ def ctx_format(ctx, del_num: int = None):
 def register_command(server):
 	server.register_command(
 		Literal(Prefix[0]).
-		requires(lambda src: src.has_permission(config['permission_requirement'])).
+		requires(lambda src: src.has_permission(config['permission-requirement'])).
 		on_error(RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
 		on_error(UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
 		runs(lambda src: print_message(src, help_msg)).
 		then(
-			Literal('reload').runs(lambda src: print_message(src, reload_config())).
-			then(Literal('ip').runs(lambda src, ctx: print_message(src, reload_json()))).
-			then(Literal('geoip').runs(lambda src, ctx: print_message(src, reload_db())))
+			Literal('reload').
+			then(Literal('config').runs(lambda src: print_message(src, reload_config()))).
+			then(Literal('ip').runs(lambda src: print_message(src, reload_json()))).
+			then(Literal('geoip').runs(lambda src: print_message(src, reload_db())))
 		).
 		then(Literal('get').then(Text('player').runs(lambda src, ctx: print_message(src, get_ips(ctx['player']))))).
 		then(Literal('search').then(Text('player').runs(lambda src, ctx: print_message(src, search_ip(ctx['player']))))).
@@ -278,19 +313,23 @@ def register_command(server):
 		then(Literal('ban').then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip(src.get_server(), ctx['parameter']))))).
 		then(Literal('unban').then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip(src.get_server(), ctx['parameter'])))))
 	)
-	#server.register_command(
-	#	get_literal_node(Prefix[1]).runs(lambda src: print_message(src, help_msg)).
-	#	then(
-	#		Literal('ban').
-	#		runs(lambda src: print_message(src, help_msg)).
-	#		then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip_segment(src.get_server(), ctx['parameter']))))
-	#	).
-	#	then(
-	#		Literal('unban').
-	#		runs(lambda src: print_message(src, help_msg)).
-	#		then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip_segment(src.get_server(), ctx['parameter']))))
-	#	)
-	#)
+	server.register_command(
+		Literal(Prefix[1]).
+		requires(lambda src: src.has_permission(config['permission-requirement'])).
+		on_error(RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
+		on_error(UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
+		runs(lambda src: print_message(src, help_msg)).
+		then(
+			Literal('ban').
+			runs(lambda src: print_message(src, help_msg)).
+			then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip_segment(src.get_server(), ctx['parameter']))))
+		).
+		then(
+			Literal('unban').
+			runs(lambda src: print_message(src, help_msg)).
+			then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip_segment(src.get_server(), ctx['parameter']))))
+		)
+	)
 
 def def_help_msg(apis):
 	global help_msg
@@ -299,7 +338,7 @@ def def_help_msg(apis):
 根据玩家加入时的ip识别来记录ip
 [必填]  <可选>  “|”表示“或” 
 §7{0}§r 显示帮助信息
-§7{0} reload <ip/geoip>§r 重载信息
+§7{0} reload [config|ip|geoip]§r 重载信息，不给出
 §7{0} get [player]§r 获取指定玩家ip列表
 §7{0} search [ip]§r 查询指定ip所记录的玩家
 §7{0} geoip [player] <number>§r 在GeoLite2-City数据库中查找指定玩家的ip归属地
@@ -307,17 +346,16 @@ def def_help_msg(apis):
 §7已从配置文件中加载的API：{4}§r
 §7{0} ban [player] <number> <reason>§r 封锁掉指定玩家的ip
 §7{0} unban [player] <number>§r 解封掉指定玩家的ip
----以下命令还未制作完成---
-§7{3} ban [player] <reason> 封锁掉指定玩家的ip段
-§7{3} unban [player]§r 解封掉指定玩家的ip段
+§7{3} ban [player] <number> <reason> 封锁掉指定玩家的ip段
+§7{3} unban <number> [player]§r 解封掉指定玩家的ip段
 参数说明：ip段使用/24  [player]为玩家名  <number>为ip序号，默认0(最新)，可使用all来指定列表中的所有ip  <reason>为封禁理由
 """.format(Prefix[0], PLUGIN_METADATA['name'], PLUGIN_METADATA['version'], Prefix[1], apis)
 
 
 default_config = {
-	'permission_requirement': 3,
+	'permission-requirement': 3,
 	'disable-GeoIP': False,
-	'GeoIP-database-path': '[请填入GeoIP或GeoLite数据库文件路径(.mmdb)]',
+	'GeoIP-database-path': '',
 	'apis': {
 		'ip-api': {
 			'url': 'http://ip-api.com/json/[ip]?lang=zh-CN',
