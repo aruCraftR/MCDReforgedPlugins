@@ -12,7 +12,7 @@ from ConfigAPI import Config
 
 PLUGIN_METADATA = {
 	'id': 'player_ip_manager',
-	'version': '0.8.0',
+	'version': '0.8.1',
 	'name': 'PlayerIpManager',
 	'description': 'Manage player IP',
 	'author': 'sophie_desu',
@@ -164,14 +164,18 @@ def search_api(source, ctx):
 	api = config['apis'][api_name]
 	url, header, status_name, status = None, None, None, None
 	try:
-		url = api['url']
-		status_name = api['status'][0]
-		status = api['status'][1]
-		header = api['header']
-	except Exception as e:
-		if url is None:
+		if 'url' not in api:
 			print_message(source, f'所指定的API[{api_name}]的配置没有指定url')
 			return
+		else:
+			url = api['url']
+		if 'status' in api:
+			status_name, status = api['status']
+		if 'header' in api:
+			header = api['header']
+	except Exception as e:
+		print_message(source, f'所指定的API[{api_name}]的配置出现错误：{e}')
+		return
 	url = re_sub(r'\[ip\]', ip, url)
 	if num == 'all':
 		print_message(source, f'ip查询不支持使用参数all，自动选择为0')
