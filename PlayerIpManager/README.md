@@ -6,6 +6,9 @@
 
 - `geoip2`
 
+### MCDReforged
+- 版本高于1.0.0
+
 ### 前置插件
 
 - [ConfigAPI](https://github.com/hanbings/ConfigAPI)
