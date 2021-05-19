@@ -30,6 +30,7 @@ apis:
     - [ISP：, isp]
     url: http://ip-api.com/json/[ip]?lang=zh-CN
 permission-requirement: 3
+maximum-ip-record: 10
 disable-GeoIP: false
 GeoIP-database-path: ''
 ```
@@ -38,6 +39,13 @@ GeoIP-database-path: ''
 默认值: `3`
 
 用于设置`!!ip`命令所需的权限等级
+
+### `maximum-ip-record`
+
+默认值: `10`
+
+用于设置对于每个玩家记录的最多IP数量
+超过限制后最新的IP会替换掉最旧的IP
 
 ### `disable-GeoIP`
 
