@@ -12,7 +12,7 @@ from ConfigAPI import Config
 
 PLUGIN_METADATA = {
 	'id': 'player_ip_manager',
-	'version': '0.0.7',
+	'version': '0.8.0',
 	'name': 'PlayerIpManager',
 	'description': 'Manage player IP',
 	'author': 'sophie_desu',
@@ -46,7 +46,7 @@ def on_load(server, old):
 			GeoIP = geoip2_Reader(config['GeoIP-database-path'])
 		else:
 			GeoIP = 'disable'
-		if '#banned-ip-segment' not in ip_library.keys():
+		if not '#banned-ip-segment' in ip_library:
 			ip_library['#banned-ip-segment'] = {}
 			ip_library.save()
 	def_help_msg(', '.join(config['apis'].keys()))
@@ -61,9 +61,16 @@ def on_player_joined(server, player, info):
 	ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
 	if ip_segment in ip_library['#banned-ip-segment'].keys():
 		server.execute('kick ' + player + ' ' + ip_library['#banned-ip-segment'][ip_segment])
-	if player not in ip_library.keys():
+	if not player in ip_library:
 		ip_library[player] = []
 	if address not in ip_library[player]:
+		length = len(ip_library[player])
+		if length >= config['maximum-ip-record']:
+			if length == config['maximum-ip-record']:
+				del ip_library[player][0]
+			else:
+				ip_library[player] = ip_library[player][int(-config['maximum-ip-record']):]
+			ip_library.save()
 		ip_library[player].append(address)
 		ip_library.save()
 
@@ -102,7 +109,7 @@ def reload_db():
 		return '数据库重载完成'
 
 def get_ips(player):
-	if player not in ip_library.keys():
+	if not player in ip_library:
 		return '玩家不存在'
 	ip_num = len(ip_library[player])
 	return '玩家{}使用过{}个ip登入服务器，具体如下(由旧到新)：{}'.format(player, ip_num, ', '.join(ip_library[player]))
@@ -155,14 +162,15 @@ def search_api(source, ctx):
 		print_message(source, f'所指定的API[{api_name}]不存在')
 		return
 	api = config['apis'][api_name]
-	url = None
-	header = None
+	url, header, status_name, status = None, None, None, None
 	try:
 		url = api['url']
+		status_name = api['status'][0]
+		status = api['status'][1]
 		header = api['header']
 	except Exception as e:
 		if url is None:
-			print_message(source, f'所指定的API[{api_name}]的配置文件出现错误({e})')
+			print_message(source, f'所指定的API[{api_name}]的配置没有指定url')
 			return
 	url = re_sub(r'\[ip\]', ip, url)
 	if num == 'all':
@@ -177,10 +185,14 @@ def search_api(source, ctx):
 		encoding = response.info().get_content_charset('utf-8')
 		data = loads(content.decode(encoding))
 	except Exception as e:
-		print_message(source, f'查找ip[{ip}]时出现错误，详细错误[{e}]')
+		print_message(source, f'查询ip[{ip}]时出现错误，详细错误[{e}]')
 		return
+	if status_name is not None:
+		if data[status_name] != status:
+			print_message(source, 'API响应：获取失败')
+			return
+	text_list = []
 	try:
-		text_list = []
 		for i, j in api['response']:
 			text_list.append(i + data[j])
 	except Exception as e:
@@ -270,7 +282,7 @@ def ctx_format(ctx, del_num: int = None):
 		reason = None
 	length = len(ctx)
 	player = ctx[0]
-	if player not in ip_library.keys():
+	if not player in ip_library:
 		return ('玩家不存在',)
 	if length == 1:
 		ctx.append(0)
@@ -338,7 +350,7 @@ def def_help_msg(apis):
 根据玩家加入时的ip识别来记录ip
 [必填]  <可选>  “|”表示“或” 
 §7{0}§r 显示帮助信息
-§7{0} reload [config|ip|geoip]§r 重载信息，不给出
+§7{0} reload [config|ip|geoip]§r 重载信息
 §7{0} get [player]§r 获取指定玩家ip列表
 §7{0} search [ip]§r 查询指定ip所记录的玩家
 §7{0} geoip [player] <number>§r 在GeoLite2-City数据库中查找指定玩家的ip归属地
@@ -354,11 +366,13 @@ def def_help_msg(apis):
 
 default_config = {
 	'permission-requirement': 3,
+	'maximum-ip-record': 10,
 	'disable-GeoIP': False,
 	'GeoIP-database-path': '',
 	'apis': {
 		'ip-api': {
 			'url': 'http://ip-api.com/json/[ip]?lang=zh-CN',
+			'status': ['status', 'success'],
 			'response': [
 				['时区：', 'timezone'],
 				['国家：', 'country'],
