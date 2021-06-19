@@ -7,7 +7,8 @@ from urllib.request import Request, urlopen
 from ConfigAPI import Config
 from geoip2.database import Reader as geoip2_Reader
 from JsonDataAPI import Json
-from mcdreforged.api import command, decorator
+from mcdreforged.api.command import GreedyText, Literal, RequirementNotMet, Text, UnknownArgument
+from mcdreforged.api.decorator import new_thread
 
 PLUGIN_METADATA = {
     'id': 'player_ip_manager',
@@ -130,7 +131,7 @@ def search_ip(ip):
     return '玩家{}使用过{}登入服务器'.format(', '.join(players), ip)
 
 
-@decorator.new_thread(PLUGIN_METADATA['name'])
+@new_thread(PLUGIN_METADATA['name'])
 def search_geoip(source, ctx):
     if config['disable-GeoIP']:
         print_message(source, 'GeoIP查询未开启')
@@ -158,7 +159,7 @@ def search_geoip(source, ctx):
     """)
 
 
-@decorator.new_thread(PLUGIN_METADATA['name'])
+@new_thread(PLUGIN_METADATA['name'])
 def search_api(source, ctx):
     ctx = ctx_format(ctx, 0)
     if len(ctx) == 1:
@@ -325,39 +326,39 @@ def ctx_format(ctx, del_num: int = None):
 
 def register_command(server):
     server.register_command(
-        command.Literal(Prefix[0]).
+        Literal(Prefix[0]).
         requires(lambda src: src.has_permission(config['permission-requirement'])).
-        on_error(command.RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
-        on_error(command.UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
+        on_error(RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
+        on_error(UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
         runs(lambda src: print_message(src, help_msg)).
         then(
-            command.Literal('reload').
-            then(command.Literal('config').runs(lambda src: print_message(src, reload_config()))).
-            then(command.Literal('ip').runs(lambda src: print_message(src, reload_json()))).
-            then(command.Literal('geoip').runs(lambda src: print_message(src, reload_db())))
+            Literal('reload').
+            then(Literal('config').runs(lambda src: print_message(src, reload_config()))).
+            then(Literal('ip').runs(lambda src: print_message(src, reload_json()))).
+            then(Literal('geoip').runs(lambda src: print_message(src, reload_db())))
         ).
-        then(command.Literal('get').then(command.Text('player').runs(lambda src, ctx: print_message(src, get_ips(ctx['player']))))).
-        then(command.Literal('search').then(command.Text('player').runs(lambda src, ctx: print_message(src, search_ip(ctx['player']))))).
-        then(command.Literal('geoip').then(command.GreedyText('parameter').runs(lambda src, ctx: search_geoip(src, ctx['parameter'])))).
-        then(command.Literal('api').then(command.GreedyText('parameter').runs(lambda src, ctx: search_api(src, ctx['parameter'])))).
-        then(command.Literal('ban').then(command.GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip(src.get_server(), ctx['parameter']))))).
-        then(command.Literal('unban').then(command.GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip(src.get_server(), ctx['parameter'])))))
+        then(Literal('get').then(Text('player').runs(lambda src, ctx: print_message(src, get_ips(ctx['player']))))).
+        then(Literal('search').then(Text('player').runs(lambda src, ctx: print_message(src, search_ip(ctx['player']))))).
+        then(Literal('geoip').then(GreedyText('parameter').runs(lambda src, ctx: search_geoip(src, ctx['parameter'])))).
+        then(Literal('api').then(GreedyText('parameter').runs(lambda src, ctx: search_api(src, ctx['parameter'])))).
+        then(Literal('ban').then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip(src.get_server(), ctx['parameter']))))).
+        then(Literal('unban').then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip(src.get_server(), ctx['parameter'])))))
     )
     server.register_command(
-        command.Literal(Prefix[1]).
+        Literal(Prefix[1]).
         requires(lambda src: src.has_permission(config['permission-requirement'])).
-        on_error(command.RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
-        on_error(command.UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
+        on_error(RequirementNotMet, lambda src: print_message(src, '§4权限不足！'), handled=True).
+        on_error(UnknownArgument, lambda src: print_message(src, f'§c未知指令，输入§7{Prefix[0]}§c以查看帮助')).
         runs(lambda src: print_message(src, help_msg)).
         then(
-            command.Literal('ban').
+            Literal('ban').
             runs(lambda src: print_message(src, help_msg)).
-            then(command.GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip_segment(src.get_server(), ctx['parameter']))))
+            then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, ban_ip_segment(src.get_server(), ctx['parameter']))))
         ).
         then(
-            command.Literal('unban').
+            Literal('unban').
             runs(lambda src: print_message(src, help_msg)).
-            then(command.GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip_segment(src.get_server(), ctx['parameter']))))
+            then(GreedyText('parameter').runs(lambda src, ctx: print_message(src, unban_ip_segment(src.get_server(), ctx['parameter']))))
         )
     )
 
