@@ -9,6 +9,7 @@ from geoip2.database import Reader as geoip2_Reader
 from JsonDataAPI import Json
 from mcdreforged.api.command import GreedyText, Literal, RequirementNotMet, Text, UnknownArgument
 from mcdreforged.api.decorator import new_thread
+from mcdreforged.api.types import ServerInterface
 
 PLUGIN_METADATA = {
     'id': 'player_ip_manager',
@@ -18,12 +19,14 @@ PLUGIN_METADATA = {
     'author': 'sophie_desu',
     'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/PlayerIpManager',
     'dependencies': {
-            'config_api': '*',
-        'json_data_api': '*'
+        'config_api': '*',
+        'json_data_api': '*',
+        'online_player_api': '*'
     }
 }
 
 Prefix = ['!!ip', '!!ip-segment']
+online_player_ip = {}
 
 
 def print_message(source, msg, tell=True, prefix='[IpManager] '):
@@ -34,13 +37,15 @@ def print_message(source, msg, tell=True, prefix='[IpManager] '):
         source.reply(msg)
 
 
-def on_load(server, old):
-    global ip_library, GeoIP, config
+def on_load(server: ServerInterface, old):
+    global ip_library, GeoIP, config, online_player_ip
+    OnlinePlayerAPI = server.get_plugin_instance('online_player_api')
     server.register_help_message('!!ip', '玩家ip库帮助')
     if old is not None:
         ip_library = old.ip_library
         GeoIP = old.GeoIP
         config = old.config
+        online_player_ip = old.online_player_ip
     else:
         ip_library = Json('data', 'ip_library')
         config = Config('', default_config, 'PlayerIpManager')
@@ -51,6 +56,13 @@ def on_load(server, old):
         if '#banned-ip-segment' not in ip_library:
             ip_library['#banned-ip-segment'] = {}
             ip_library.save()
+        online_player = OnlinePlayerAPI.get_player_list()
+        for p in online_player:
+            if p in ip_library:
+                ip = ip_library[p][-1]
+                if ip not in online_player_ip:
+                    online_player_ip[ip] = []
+                online_player_ip[ip].append(p)
     def_help_msg(', '.join(config['apis'].keys()))
     register_command(server)
 
@@ -61,6 +73,10 @@ def on_player_joined(server, player, info):
     if address == 'local':  # carpet假人地址为local
         return
     ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
+    if (config['single-ip-restrictions'] > 0) and (address not in config['ignore-single-ip-restrictions']) and (len(online_player_ip[address]) >= config['single-ip-restrictions']):
+        server.execute(f'kick {player} 在你使用的IP地址上已有{len(online_player_ip[address])}名玩家在线')
+    else:
+        online_player_ip[address].append(address)
     if ip_segment in ip_library['#banned-ip-segment'].keys():
         server.execute('kick ' + player + ' ' + ip_library['#banned-ip-segment'][ip_segment])
     if player not in ip_library:
@@ -75,6 +91,12 @@ def on_player_joined(server, player, info):
             ip_library.save()
         ip_library[player].append(address)
         ip_library.save()
+
+
+def on_player_left(server, player):
+    ip = ip_library[player][-1]
+    if ip in online_player_ip:
+        online_player_ip[ip].remove(player)
 
 
 def reload_config():
@@ -387,6 +409,10 @@ def def_help_msg(apis):
 default_config = {
     'permission-requirement': 3,
     'maximum-ip-record': 10,
+    'single-ip-restrictions': 1,
+    'ignore-single-ip-restrictions': [
+        '127.0.0.1'
+    ],
     'disable-GeoIP': False,
     'GeoIP-database-path': '',
     'apis': {

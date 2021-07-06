@@ -4,7 +4,7 @@
 
 ### Python包
 
-- `geoip2`
+- `geoip2` `urllib`
 
 ### MCDReforged
 - 版本>=1.0.0
@@ -28,9 +28,13 @@ apis:
     - [省：, regionName]
     - [市：, city]
     - [ISP：, isp]
+    status: [status, success]
     url: http://ip-api.com/json/[ip]?lang=zh-CN
 permission-requirement: 3
 maximum-ip-record: 10
+single-ip-restrictions: 1
+ignore-single-ip-restrictions:
+  - 127.0.0.1
 disable-GeoIP: false
 GeoIP-database-path: ''
 ```
@@ -49,6 +53,24 @@ GeoIP-database-path: ''
 超过限制后最新的IP会替换掉最旧的IP
 
 对于国内的互联网服务提供商(ISP)，每次重新进行拨号(可以理解成重启光猫/路由器)都会导致IP变动
+
+### `single-ip-restrictions`
+
+默认值: `1`
+
+用于设置对于每个连接的ip最多能有多少玩家在线
+
+如果有超过该值数量的玩家使用同一ip登入，将会自动踢出
+
+典型用途：自动踢出玩家小号
+
+### `ignore-single-ip-restrictions`
+
+默认值: `127.0.0.1`
+
+在该列表中的ip将不会检测执行自动踢出操作
+
+典型用途：使用内网映射导致所有玩家ip均为127.0.0.1，会无差别踢出超过设置数量的玩家
 
 ### `disable-GeoIP`
 
