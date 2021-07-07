@@ -159,7 +159,7 @@ class SocketServer:
         self.host = host
         self.port = port
         self.__max_thread = max_thread if max_thread > 0 else 1
-        _SocketThread(self, self.__server, self.__thread_error).start()
+        _SocketThread(self.__server, self.__thread_error).start()
 
     def __server(self, thread: Thread):
         self.__threads.append(thread)
@@ -176,7 +176,7 @@ class SocketServer:
             self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, (addr, client_name), on_executor_thread=self.__on_executor_thread)
             if len(self.__threads) < self.__max_thread and new_thread and not self.__exit:
                 new_thread = False
-                _SocketThread(self, self.__server, self.__thread_error).start()
+                _SocketThread(self.__server, self.__thread_error).start()
             while True:
                 try:
                     recv = conn.recv(self.bufsize)
@@ -358,7 +358,7 @@ class SocketClient:
         self.bufsize = bufsize
         self.__reconnection_times = reconnection_times if reconnection_times >= 0 else 0
         self.__reconnection_interval = reconnection_interval if reconnection_times >= 0 else 0
-        self.__client_thread = _SocketThread(self, self.__client, self.__thread_error)
+        self.__client_thread = _SocketThread(self.__client, self.__thread_error)
         self.__client_thread.start()
 
     def __client(self, thread: Thread):
@@ -442,7 +442,7 @@ class SocketClient:
         if self.host is None:
             raise SocketError('Need to call connect() first.')
         self.__close()
-        self.__client_thread = _SocketThread(self, self.__client, self.__thread_error, None)
+        self.__client_thread = _SocketThread(self.__client, self.__thread_error, None)
         self.__client_thread.start()
 
     def exit(self):
