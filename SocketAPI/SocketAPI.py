@@ -18,6 +18,7 @@ PLUGIN_METADATA = {
 }
 
 
+separators = (',', ':')
 socket_api_instances = {}
 thread_instances = {}
 socket_api_instance_id = 0
@@ -86,19 +87,24 @@ class _SocketThread(Thread):
         self.setDaemon(True)
         self.__method = method
         self.__error_callback = error_callback
+        self.__started = False
 
     @property
     def instance_id(self):
         return self.__instance_id
 
     def run(self):
+        self.__started = True
         try:
             self.__method(self)
         except Exception as e:
             self.__error_callback(self, e)
         _del_thread_instances(self.instance_id)
+        self.__started = False
 
     def kill(self):
+        if not self.__started:
+            return
         res = pythonapi.PyThreadState_SetAsyncExc(c_long(self.ident), py_object(SystemExit))
         if res == 0:
             raise ValueError("invalid thread id: " + str(self.ident))
@@ -106,6 +112,7 @@ class _SocketThread(Thread):
             pythonapi.PyThreadState_SetAsyncExc(self.ident, None)
             raise SystemError("PyThreadState_SetAsyncExc failed")
         _del_thread_instances(self.instance_id)
+        self.__started = False
 
 
 class SocketServer:
@@ -246,7 +253,7 @@ class SocketServer:
             json = {'source': source, 'signal': signal, 'event': event, 'data': data}
         else:
             json = {'source': source, 'event': event, 'data': data}
-        byt = dumps(json).encode('utf-8')
+        byt = dumps(json, separators=separators).encode('utf-8')
         errors = []
         try:
             for c in self.__conns:
@@ -264,7 +271,7 @@ class SocketServer:
             json = {'source': source, 'signal': signal, 'event': event, 'data': data}
         else:
             json = {'source': source, 'event': event, 'data': data}
-        data = dumps(json).encode('utf-8')
+        data = dumps(json, separators=separators).encode('utf-8')
         errors = []
         for c in self.__conns.values():
             try:
@@ -319,6 +326,8 @@ class SocketServer:
 class SocketClient:
     def __init__(self, mcdr_server: ServerInterface, client_name: str, dispatch_event_on_executor_thread=True):
         self.__instance_id = _storage_socket_api_instances(self)
+        self.__socket = socket(AF_INET, SOCK_STREAM)
+        self.__socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self.host = None
         self.__mcdr_server = mcdr_server
         self.__name = client_name
@@ -368,7 +377,7 @@ class SocketClient:
                 retry_times = 0
             self.__connected = True
             self.__client_thread.setName(self.__name + '[Connected to server]')
-            self.__socket.send(dumps({'name': self.__name}).encode('utf-8'))
+            self.__socket.send(dumps({'name': self.__name}, separators=separators).encode('utf-8'))
             while True:
                 try:
                     recv = self.__socket.recv(self.bufsize)
@@ -403,9 +412,9 @@ class SocketClient:
             target_clients = [target_clients]
         try:
             if signal is not None:
-                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data, 'signal': signal}).encode('utf-8'))
+                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data, 'signal': signal}, separators=separators).encode('utf-8'))
             else:
-                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data}).encode('utf-8'))
+                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data}, separators=separators).encode('utf-8'))
         except Exception as e:
             return e
 
@@ -414,9 +423,9 @@ class SocketClient:
             raise SocketError('Not connected to the server.')
         try:
             if signal is not None:
-                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data, 'signal': signal}).encode('utf-8'))
+                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data, 'signal': signal}, separators=separators).encode('utf-8'))
             else:
-                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data}).encode('utf-8'))
+                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data}, separators=separators).encode('utf-8'))
         except Exception as e:
             return e
 
