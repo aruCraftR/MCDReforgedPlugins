@@ -13,8 +13,8 @@ PLUGIN_METADATA = {
     'version': '1.0.0',
     'name': 'SocketAPI',
     'description': '在多个MCDR之间使用Socket通信的API库',
-    'author': 'sophie_desu',
-    'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/SocketAPI'
+    'author': 'noeru_desu',
+    'link': 'https://github.com/noeru-desu/MCDReforgedPlugins/tree/main/SocketAPI'
 }
 
 

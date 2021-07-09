@@ -16,8 +16,8 @@ PLUGIN_METADATA = {
     'version': '0.8.1',
     'name': 'PlayerIpManager',
     'description': 'Manage player IP',
-    'author': 'sophie_desu',
-    'link': 'https://github.com/sophie-desu/MCDReforgedPlugins/tree/main/PlayerIpManager',
+    'author': 'noeru_desu',
+    'link': 'https://github.com/noeru-desu/MCDReforgedPlugins/tree/main/PlayerIpManager',
     'dependencies': {
         'config_api': '*',
         'json_data_api': '*',
