@@ -189,7 +189,7 @@ class SocketServer:
                     recv_json['target_clients'].append(self.__name)
                 if self.__name in recv_json['target_clients'] or 'SocketServer' in recv_json['target_clients']:
                     self.__dispatch_event(recv_json)
-                    self.__check_signal(client_flags['name'], recv_json)
+                    self.__check_signal(thread.ident, client_flags['name'], recv_json)
                     recv_json['target_clients'].remove(self.__name)
                 recv_json['target_clients'].remove(client_flags['name'])
                 self.__forward(client_flags['name'], recv_json)
@@ -200,14 +200,14 @@ class SocketServer:
         self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
         return list(self.__events.keys())
 
-    def __check_signal(self, name, data):
+    def __check_signal(self, tid, name, data):
         if 'signal' in data:
             signal = data['signal']
             if signal == 'client_close':
                 self.__conns[name].shutdown(2)
                 self.__conns[name].close()
                 del self.__conns[name]
-                del self.__clients[name]
+                del self.__clients[tid]
 
     def __dispatch_event(self, data):
         if data['event'] in self.__events:
@@ -282,7 +282,6 @@ class SocketServer:
 
     def exit(self):
         self.__check_status()
-        self.__exit = True
         self.__listening = False
         self.close_all()
         try:
@@ -293,13 +292,17 @@ class SocketServer:
         if self.__conns:
             self.__socket.shutdown(2)
         self.__socket.close()
+        self.__exit = True
         _del_socket_api_instances(self.instance_id)
 
     def __thread_error(self, thread: _SocketThread, error):
         self.__mcdr_server.logger.error(f'线程：{thread.name}出现错误：{str(error)}')
         self.__threads.remove(thread)
         if thread.ident in self.__clients:
-            self.close(self.__clients[thread.ident])
+            try:
+                self.close(self.__clients[thread.ident])
+            except SocketError:
+                pass
 
     def __check_status(self):
         if self.__exit:
