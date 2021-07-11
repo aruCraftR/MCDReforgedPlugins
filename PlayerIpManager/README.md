@@ -1,5 +1,15 @@
 ### 注意：此插件仅能在服务器使用公网IP或proxy protocol的情况下才可记录玩家IP（即服务端可获取到玩家真实IP）。暂时只支持vanilla_handler（Vanilla / Carpet / Fabric server）
 
+## 从0.8.1及以下版本升级到0.8.2及以上版本
+
+### 如果你没有运行过0.8.1及以下版本，无需进行这些步骤，直接使用即可
+
+1.在替换插件文件的同时将`PlayerIpManagerUpgrader.py`也放入插件目录
+
+2.重载MCDR插件，看到后台输出`[IpManager] 0.8.1->0.8.2升级器执行完毕`后删除`PlayerIpManagerUpgrader.py`再次重载插件
+
+3.输入`!!ip reload ip`重载ip库信息后即可正常使用
+
 ## 依赖
 
 ### Python包
@@ -13,6 +23,7 @@
 
 - [ConfigAPI](https://github.com/hanbings/ConfigAPI)
 - [JsonDataAPI](https://github.com/zhang-anzhi/MCDReforgedPlugins/tree/master/JsonDataAPI)
+- [OnlinePlayerAPI](https://github.com/zhang-anzhi/MCDReforgedPlugins/tree/master/OnlinePlayerAPI)
 
 ## 配置
 
