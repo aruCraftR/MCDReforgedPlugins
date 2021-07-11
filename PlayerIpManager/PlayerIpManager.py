@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from json import loads
+from json import loads as json_loads, load as json_load
 from re import search as re_search
 from re import sub as re_sub
 from urllib.request import Request, urlopen
+from os.path import join as path_join
 
 from ConfigAPI import Config
 from geoip2.database import Reader as geoip2_Reader
@@ -13,7 +14,7 @@ from mcdreforged.api.types import ServerInterface
 
 PLUGIN_METADATA = {
     'id': 'player_ip_manager',
-    'version': '0.8.1',
+    'version': '0.8.2',
     'name': 'PlayerIpManager',
     'description': 'Manage player IP',
     'author': 'noeru_desu',
@@ -25,8 +26,15 @@ PLUGIN_METADATA = {
     }
 }
 
+server_path = './server'
 Prefix = ['!!ip', '!!ip-segment']
 online_player_ip = {}
+uuid = {}
+flipped_uuid = {}
+
+
+class UUIDGetError(Exception):
+    pass
 
 
 def print_message(source, msg, tell=True, prefix='[IpManager] '):
@@ -41,6 +49,7 @@ def on_load(server: ServerInterface, old):
     global ip_library, GeoIP, config, online_player_ip
     OnlinePlayerAPI = server.get_plugin_instance('online_player_api')
     server.register_help_message('!!ip', '玩家ip库帮助')
+    load_uuid()
     if old is not None:
         ip_library = old.ip_library
         GeoIP = old.GeoIP
@@ -58,8 +67,9 @@ def on_load(server: ServerInterface, old):
             ip_library.save()
         online_player = OnlinePlayerAPI.get_player_list()
         for p in online_player:
-            if p in ip_library:
-                ip = ip_library[p][-1]
+            uuid = get_uuid(p)
+            if uuid in ip_library:
+                ip = ip_library[uuid][-1]
                 if ip not in online_player_ip:
                     online_player_ip[ip] = []
                 online_player_ip[ip].append(p)
@@ -76,27 +86,49 @@ def on_player_joined(server, player, info):
     if (config['single-ip-restrictions'] > 0) and (address not in config['ignore-single-ip-restrictions']) and (len(online_player_ip[address]) >= config['single-ip-restrictions']):
         server.execute(f'kick {player} 在你使用的IP地址上已有{len(online_player_ip[address])}名玩家在线')
     else:
-        online_player_ip[address].append(address)
+        online_player_ip[address].append(player)
     if ip_segment in ip_library['#banned-ip-segment'].keys():
         server.execute('kick ' + player + ' ' + ip_library['#banned-ip-segment'][ip_segment])
-    if player not in ip_library:
-        ip_library[player] = []
-    if address not in ip_library[player]:
-        length = len(ip_library[player])
+    uuid = get_uuid(player)
+    if uuid not in ip_library:
+        ip_library[uuid] = []
+    if address not in ip_library[uuid]:
+        length = len(ip_library[uuid])
         if length >= config['maximum-ip-record']:
             if length == config['maximum-ip-record']:
-                del ip_library[player][0]
+                del ip_library[uuid][0]
             else:
-                ip_library[player] = ip_library[player][int(-config['maximum-ip-record']):]
+                ip_library[uuid] = ip_library[uuid][int(-config['maximum-ip-record']):]
             ip_library.save()
-        ip_library[player].append(address)
+        ip_library[uuid].append(address)
         ip_library.save()
 
 
 def on_player_left(server, player):
-    ip = ip_library[player][-1]
+    uuid = get_uuid(player)
+    ip = ip_library[uuid][-1]
     if ip in online_player_ip:
         online_player_ip[ip].remove(player)
+
+
+def load_uuid(check=None):
+    global uuid, flipped_uuid
+    with open(path_join(server_path, 'usercache.json'), 'r') as f:
+        user_cache = json_load(f)
+    for i in user_cache:
+        uuid[i['name']] = i['uuid']
+    flipped_uuid = {v: k for k, v in uuid.items()}
+    if check is not None and check in uuid:
+        return True
+    else:
+        return False
+
+
+def get_uuid(player):
+    if player not in uuid:
+        if not load_uuid(player):
+            raise UUIDGetError(f"Unable to get {player}'s uuid.")
+    return uuid[player]
 
 
 def reload_config():
@@ -137,17 +169,19 @@ def reload_db():
 
 
 def get_ips(player):
-    if player not in ip_library:
+    try:
+        uuid = get_uuid(player)
+    except UUIDGetError:
         return '玩家不存在'
-    ip_num = len(ip_library[player])
-    return '玩家{}使用过{}个ip登入服务器，具体如下(由旧到新)：{}'.format(player, ip_num, ', '.join(ip_library[player]))
+    ip_num = len(ip_library[uuid])
+    return '玩家{}使用过{}个ip登入服务器，具体如下(由旧到新)：{}'.format(player, ip_num, ', '.join(ip_library[uuid]))
 
 
 def search_ip(ip):
     players = []
     for k, v in ip_library.items():
         if ip in v:
-            players.append(k)
+            players.append(flipped_uuid[k])
     if not players:
         return '没有查询到关联玩家'
     return '玩家{}使用过{}登入服务器'.format(', '.join(players), ip)
@@ -217,7 +251,7 @@ def search_api(source, ctx):
         response = urlopen(request)
         content = response.read()
         encoding = response.info().get_content_charset('utf-8')
-        data = loads(content.decode(encoding))
+        data = json_loads(content.decode(encoding))
     except Exception as e:
         print_message(source, f'查询ip[{ip}]时出现错误，详细错误[{e}]')
         return
@@ -255,7 +289,7 @@ def ban_ip(server, ctx):
     if not num == 'all':
         execute_cmd(server, cmd, ip, reason)
         return '已完成操作'
-    for i in ip_library[player]:
+    for i in ip_library[get_uuid(player)]:
         execute_cmd(server, cmd, i, reason)
     return '已完成操作'
 
@@ -269,7 +303,7 @@ def unban_ip(server, ctx):
     if not num == 'all':
         execute_cmd(server, cmd, ip, reason)
         return '已完成操作'
-    for i in ip_library[player]:
+    for i in ip_library[get_uuid(player)]:
         execute_cmd(server, cmd, i, reason)
     return '已完成操作'
 
@@ -287,7 +321,7 @@ def ban_ip_segment(server, ctx):
         ip_library['#banned-ip-segment'][ip_segment] = reason
         ip_library.save()
         return '已完成操作'
-    for i in ip_library[player]:
+    for i in ip_library[get_uuid(player)]:
         ip_segment = re_search(r'[1-9\.]+(?=\.)', i).group()
         if ip_segment not in ip_library['#banned-ip-segment']:
             ip_library['#banned-ip-segment'][ip_segment] = reason
@@ -305,7 +339,7 @@ def unban_ip_segment(server, ctx):
         del ip_library['#banned-ip-segment'][ip_segment]
         ip_library.save()
         return '已完成操作'
-    for i in ip_library[player]:
+    for i in ip_library[get_uuid(player)]:
         ip_segment = re_search(r'[1-9\.]+(?=\.)', i).group()
         del ip_library['#banned-ip-segment'][ip_segment]
         ip_library.save()
@@ -322,7 +356,9 @@ def ctx_format(ctx, del_num: int = None):
         reason = None
     length = len(ctx)
     player = ctx[0]
-    if player not in ip_library:
+    try:
+        uuid = get_uuid(player)
+    except UUIDGetError:
         return ('玩家不存在',)
     if length == 1:
         ctx.append(0)
@@ -336,9 +372,9 @@ def ctx_format(ctx, del_num: int = None):
     else:
         try:
             if not num == 'all':
-                ip = ip_library[player][num]
+                ip = ip_library[uuid][num]
             else:
-                ip = ip_library[player][-1]
+                ip = ip_library[uuid][-1]
         except IndexError:
             return ('序号错误，给出的序号不存在',)
     if length == 3:
