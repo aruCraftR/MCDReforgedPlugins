@@ -79,11 +79,11 @@ def on_load(server: ServerInterface, old):
 
 def on_player_joined(server, player, info):
     global ip_library
-    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*\]', info.content).group())
+    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*\:', info.content).group())
     if address == 'local':  # carpet假人地址为local
         return
     ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
-    if (config['single-ip-restrictions'] > 0) and (address not in config['ignore-single-ip-restrictions']) and (len(online_player_ip[address]) >= config['single-ip-restrictions']):
+    if (config['single-ip-restrictions'] > 0) and (address not in config['ignore-single-ip-restrictions']) and (address in online_player_ip) and (len(online_player_ip[address]) >= config['single-ip-restrictions']):
         server.execute(f'kick {player} 在你使用的IP地址上已有{len(online_player_ip[address])}名玩家在线')
     else:
         if address not in online_player_ip:
