@@ -79,7 +79,7 @@ def on_load(server: ServerInterface, old):
 
 def on_player_joined(server, player, info):
     global ip_library
-    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*\:', info.content).group())
+    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*?\:?(?=[0-9]*?\])', info.content).group())
     if address == 'local':  # carpet假人地址为local
         return
     ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
