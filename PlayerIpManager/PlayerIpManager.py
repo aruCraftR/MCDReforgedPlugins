@@ -14,7 +14,7 @@ from mcdreforged.api.types import ServerInterface
 
 PLUGIN_METADATA = {
     'id': 'player_ip_manager',
-    'version': '0.8.2',
+    'version': '0.8.3',
     'name': 'PlayerIpManager',
     'description': 'Manage player IP',
     'author': 'noeru_desu',
@@ -79,13 +79,15 @@ def on_load(server: ServerInterface, old):
 
 def on_player_joined(server, player, info):
     global ip_library
-    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*:', info.content).group())
+    address = re_sub(r'[^a-z0-9\.]', '', re_search(r'\[.*\]', info.content).group())
     if address == 'local':  # carpet假人地址为local
         return
     ip_segment = re_search(r'[1-9\.]+(?=\.)', address).group()
     if (config['single-ip-restrictions'] > 0) and (address not in config['ignore-single-ip-restrictions']) and (len(online_player_ip[address]) >= config['single-ip-restrictions']):
         server.execute(f'kick {player} 在你使用的IP地址上已有{len(online_player_ip[address])}名玩家在线')
     else:
+        if address not in online_player_ip:
+            online_player_ip[address] = []
         online_player_ip[address].append(player)
     if ip_segment in ip_library['#banned-ip-segment'].keys():
         server.execute('kick ' + player + ' ' + ip_library['#banned-ip-segment'][ip_segment])
