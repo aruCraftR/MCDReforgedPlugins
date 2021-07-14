@@ -10,7 +10,7 @@ from mcdreforged.api.types import ServerInterface
 
 PLUGIN_METADATA = {
     'id': 'socket_api',
-    'version': '1.0.0',
+    'version': '1.1.0',
     'name': 'SocketAPI',
     'description': '在多个MCDR之间使用Socket通信的API库',
     'author': 'noeru_desu',
@@ -34,7 +34,7 @@ def on_load(server, prev_module):
         thread_instance_id = prev_module.thread_instance_id
 
 
-def _storage_socket_api_instances(socket_api, instance_id=None) -> int:
+def _storage_socket_api_instance(socket_api, instance_id=None) -> int:
     global socket_api_instance_id
     if instance_id is None:
         socket_api_instance_id += 1
@@ -45,27 +45,27 @@ def _storage_socket_api_instances(socket_api, instance_id=None) -> int:
         return instance_id
 
 
-def _storage_thread_instances(thread) -> int:
+def _storage_thread_instance(thread) -> int:
     global thread_instance_id
     thread_instance_id += 1
     thread_instances[thread_instance_id] = thread
     return thread_instance_id
 
 
-def _del_socket_api_instances(instance_id):
+def _del_socket_api_instance(instance_id):
     del socket_api_instances[instance_id]
 
 
-def _del_thread_instances(instance_id):
+def _del_thread_instance(instance_id):
     del thread_instances[instance_id]
 
 
-def get_socket_api_instances() -> dict:
-    return socket_api_instances
+def get_socket_api_instance(socket_api_instance_id):
+    return socket_api_instances[socket_api_instance_id] if socket_api_instance_id in socket_api_instances else None
 
 
-def get_thread_instances() -> dict:
-    return thread_instances
+def get_thread_instance(thread_instance_id):
+    return thread_instances[thread_instance_id] if thread_instance_id in thread_instances else None
 
 
 class SocketError(Exception):
@@ -83,11 +83,12 @@ class ConnectionFailedError(SocketError):
 class _SocketThread(Thread):
     def __init__(self, method, error_callback):
         super().__init__()
-        self.__instance_id = _storage_thread_instances(self)
+        self.__instance_id = _storage_thread_instance(self)
         self.setDaemon(True)
         self.__method = method
         self.__error_callback = error_callback
         self.__started = False
+        self.start()
 
     @property
     def instance_id(self):
@@ -99,37 +100,36 @@ class _SocketThread(Thread):
             self.__method(self)
         except Exception as e:
             self.__error_callback(self, e)
-        _del_thread_instances(self.instance_id)
+        _del_thread_instance(self.instance_id)
         self.__started = False
 
     def kill(self):
         if not self.__started:
             return
         res = pythonapi.PyThreadState_SetAsyncExc(c_long(self.ident), py_object(SystemExit))
-        if res == 0:
-            raise ValueError("invalid thread id: " + str(self.ident))
-        elif res != 1:
+        if res != 1 and res != 0:
             pythonapi.PyThreadState_SetAsyncExc(self.ident, None)
             raise SystemError("PyThreadState_SetAsyncExc failed")
-        _del_thread_instances(self.instance_id)
+        _del_thread_instance(self.instance_id)
         self.__started = False
 
 
 class SocketServer:
     def __init__(self, mcdr_server: ServerInterface, server_name='SocketServer', dispatch_event_on_executor_thread=True):
-        self.__instance_id = _storage_socket_api_instances(self)
+        self.__instance_id = _storage_socket_api_instance(self)
         self.__socket = None
         self.__mcdr_server = mcdr_server
         self.__name = server_name
         self.__on_executor_thread = dispatch_event_on_executor_thread
+        self.__events = {}
         self.__threads = []
         self.__conns = {}
         self.__clients = {}
         self.__tid = {}
-        self.__events = {}
         self.__exit = False
         self.__listening = False
         self.__ON_CONNECTED_EVENT = LiteralEvent('{}.on_connected'.format(PLUGIN_METADATA['id']))
+        self.__ON_DISCONNECTED_EVENT = LiteralEvent('{}.on_disconnected'.format(PLUGIN_METADATA['id']))
 
     @property
     def instance_id(self):
@@ -152,14 +152,14 @@ class SocketServer:
             self.__socket.bind((host, port))
         if self.__exit:
             self.__exit = False
-            _storage_socket_api_instances(self, self.instance_id)
+            _storage_socket_api_instance(self, self.instance_id)
         self.__socket.listen(5)
         self.__listening = True
         self.bufsize = bufsize
         self.host = host
         self.port = port
         self.__max_thread = max_thread if max_thread > 0 else 1
-        _SocketThread(self.__server, self.__thread_error).start()
+        _SocketThread(self.__server, self.__thread_error)
 
     def __server(self, thread: Thread):
         self.__threads.append(thread)
@@ -173,10 +173,10 @@ class SocketServer:
             self.__clients[thread.ident] = client_name
             self.__tid[client_name] = thread.ident
             thread.setName(f'{self.__name}-{str(len(self.__threads))}[Connected to {client_name}]')
-            self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, (addr, client_name), on_executor_thread=self.__on_executor_thread)
             if len(self.__threads) < self.__max_thread and new_thread and not self.__exit:
                 new_thread = False
-                _SocketThread(self.__server, self.__thread_error).start()
+                _SocketThread(self.__server, self.__thread_error)
+            self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, (client_name, addr))
             while True:
                 try:
                     recv = conn.recv(self.bufsize)
@@ -188,14 +188,16 @@ class SocketServer:
                     recv_json['target_clients'] = list(self.__conns.keys())
                     recv_json['target_clients'].append(self.__name)
                 if self.__name in recv_json['target_clients'] or 'SocketServer' in recv_json['target_clients']:
-                    self.__dispatch_event(recv_json)
                     self.__check_signal(thread.ident, client_flags['name'], recv_json)
+                    self.__dispatch_event(recv_json)
                     recv_json['target_clients'].remove(self.__name)
                 recv_json['target_clients'].remove(client_flags['name'])
                 self.__forward(client_flags['name'], recv_json)
 
     def register_event(self, event_name):
-        if event_name in self.__events:
+        if event_name in ['on_connected', 'on_disconnected']:
+            raise EventRegisteredError(f'Event {event_name} is an internal event.')
+        elif event_name in self.__events:
             raise EventRegisteredError(f'Event {event_name} has been registered')
         self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
         return list(self.__events.keys())
@@ -231,13 +233,18 @@ class SocketServer:
         del self.__conns[target_client]
         del self.__clients[self.__tid[target_client]]
         del self.__tid[target_client]
+        self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, (target_client,))
 
     def close_all(self):
         self.__check_status()
-        self.send_to_all(None, None, signal='close')
-        for c in self.__conns.values():
+        try:
+            self.send_to_all(None, None, signal='close')
+        except SocketError:
+            pass
+        for n, c in self.__conns.items():
             c.shutdown(2)
             c.close()
+            self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, (n,))
         self.__conns.clear()
         self.__clients.clear()
         self.__tid.clear()
@@ -293,7 +300,7 @@ class SocketServer:
             self.__socket.shutdown(2)
         self.__socket.close()
         self.__exit = True
-        _del_socket_api_instances(self.instance_id)
+        _del_socket_api_instance(self.instance_id)
 
     def __thread_error(self, thread: _SocketThread, error):
         self.__mcdr_server.logger.error(f'线程：{thread.name}出现错误：{str(error)}')
@@ -328,7 +335,7 @@ class SocketServer:
 
 class SocketClient:
     def __init__(self, mcdr_server: ServerInterface, client_name: str, dispatch_event_on_executor_thread=True):
-        self.__instance_id = _storage_socket_api_instances(self)
+        self.__instance_id = _storage_socket_api_instance(self)
         self.__socket = socket(AF_INET, SOCK_STREAM)
         self.__socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         self.host = None
@@ -338,6 +345,8 @@ class SocketClient:
         self.__events = {}
         self.__connected = False
         self.__client_thread = None
+        self.__ON_CONNECTED_EVENT = LiteralEvent('{}.on_connected'.format(PLUGIN_METADATA['id']))
+        self.__ON_DISCONNECTED_EVENT = LiteralEvent('{}.on_disconnected'.format(PLUGIN_METADATA['id']))
 
     @property
     def instance_id(self):
@@ -362,7 +371,6 @@ class SocketClient:
         self.__reconnection_times = reconnection_times if reconnection_times >= 0 else 0
         self.__reconnection_interval = reconnection_interval if reconnection_times >= 0 else 0
         self.__client_thread = _SocketThread(self.__client, self.__thread_error)
-        self.__client_thread.start()
 
     def __client(self, thread: Thread):
         retry_times = 0
@@ -381,6 +389,7 @@ class SocketClient:
             self.__connected = True
             self.__client_thread.setName(self.__name + '[Connected to server]')
             self.__socket.send(dumps({'name': self.__name}, separators=separators).encode('utf-8'))
+            self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, ())
             while True:
                 try:
                     recv = self.__socket.recv(self.bufsize)
@@ -400,7 +409,9 @@ class SocketClient:
             raise ConnectionFailedError('Connection failure times exceed the upper limit.')
 
     def register_event(self, event_name):
-        if event_name in self.__events:
+        if event_name in ['on_connected', 'on_disconnected']:
+            raise EventRegisteredError(f'Event {event_name} is an internal event.')
+        elif event_name in self.__events:
             raise EventRegisteredError(f'Event {event_name} has been registered')
         self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
 
@@ -432,21 +443,24 @@ class SocketClient:
         except Exception as e:
             return e
 
-    def __close(self, del_instances=False):
+    def __close(self, del_instance=False):
         if self.__connected:
-            self.send_to(['SocketServer'], None, None, 'client_close')
+            try:
+                self.send_to(['SocketServer'], None, None, 'client_close')
+            except SocketError:
+                pass
             self.__connected = False
         self.__socket.shutdown(2)
-        if del_instances:
-            self.__socket.close()
-            _del_socket_api_instances(self.instance_id)
+        self.__socket.close()
+        if del_instance:
+            _del_socket_api_instance(self.instance_id)
+        self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, ())
 
     def reconnect(self):
         if self.host is None:
             raise SocketError('Need to call connect() first.')
         self.__close()
         self.__client_thread = _SocketThread(self.__client, self.__thread_error, None)
-        self.__client_thread.start()
 
     def exit(self):
         self.__close(True)
