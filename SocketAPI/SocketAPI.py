@@ -302,7 +302,7 @@ class SocketServer:
         self.__exit = True
         _del_socket_api_instance(self.instance_id)
 
-    def __thread_error(self, thread: _SocketThread, error):
+    def __thread_error(self, thread, error):
         self.__mcdr_server.logger.error(f'线程：{thread.name}出现错误：{str(error)}')
         self.__threads.remove(thread)
         if thread.ident in self.__clients:
@@ -460,7 +460,7 @@ class SocketClient:
         if self.host is None:
             raise SocketError('Need to call connect() first.')
         self.__close()
-        self.__client_thread = _SocketThread(self.__client, self.__thread_error, None)
+        self.__client_thread = _SocketThread(self.__client, self.__thread_error)
 
     def exit(self):
         self.__close(True)
