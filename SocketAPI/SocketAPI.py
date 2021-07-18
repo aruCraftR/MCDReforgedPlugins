@@ -18,11 +18,13 @@ PLUGIN_METADATA = {
 }
 
 
-separators = (',', ':')
 socket_api_instances = {}
 thread_instances = {}
 socket_api_instance_id = 0
 thread_instance_id = 0
+SEPARATORS = (',', ':')
+ON_CONNECTED_EVENT = LiteralEvent('{}.on_connected'.format(PLUGIN_METADATA['id']))
+ON_DISCONNECTED_EVENT = LiteralEvent('{}.on_disconnected'.format(PLUGIN_METADATA['id']))
 
 
 def on_load(server, prev_module):
@@ -34,15 +36,13 @@ def on_load(server, prev_module):
         thread_instance_id = prev_module.thread_instance_id
 
 
-def _storage_socket_api_instance(socket_api, instance_id=None) -> int:
+def _storage_socket_api_instance(socket_api) -> int:
     global socket_api_instance_id
-    if instance_id is None:
-        socket_api_instance_id += 1
-        socket_api_instances[socket_api_instance_id] = socket_api
-        return socket_api_instance_id
-    else:
-        socket_api_instances[instance_id] = socket_api
-        return instance_id
+    socket_api_instance_id += 1
+    if len(socket_api_instances) >= 20:
+        del socket_api_instances[list(socket_api_instances.keys())[0]]
+    socket_api_instances[socket_api_instance_id] = socket_api
+    return socket_api_instance_id
 
 
 def _storage_thread_instance(thread) -> int:
@@ -50,10 +50,6 @@ def _storage_thread_instance(thread) -> int:
     thread_instance_id += 1
     thread_instances[thread_instance_id] = thread
     return thread_instance_id
-
-
-def _del_socket_api_instance(instance_id):
-    del socket_api_instances[instance_id]
 
 
 def _del_thread_instance(instance_id):
@@ -128,8 +124,6 @@ class SocketServer:
         self.__tid = {}
         self.__exit = False
         self.__listening = False
-        self.__ON_CONNECTED_EVENT = LiteralEvent('{}.on_connected'.format(PLUGIN_METADATA['id']))
-        self.__ON_DISCONNECTED_EVENT = LiteralEvent('{}.on_disconnected'.format(PLUGIN_METADATA['id']))
 
     @property
     def instance_id(self):
@@ -161,39 +155,6 @@ class SocketServer:
         self.__max_thread = max_thread if max_thread > 0 else 1
         _SocketThread(self.__server, self.__thread_error)
 
-    def __server(self, thread: Thread):
-        self.__threads.append(thread)
-        new_thread = True
-        while True:
-            thread.setName(f'{self.__name}-{str(len(self.__threads) + 1)}[Waiting to connect]')
-            conn, addr = self.__socket.accept()
-            client_flags = loads(conn.recv(self.bufsize))
-            client_name = client_flags['name']
-            self.__conns[client_name] = conn
-            self.__clients[thread.ident] = client_name
-            self.__tid[client_name] = thread.ident
-            thread.setName(f'{self.__name}-{str(len(self.__threads))}[Connected to {client_name}]')
-            if len(self.__threads) < self.__max_thread and new_thread and not self.__exit:
-                new_thread = False
-                _SocketThread(self.__server, self.__thread_error)
-            self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, (client_name, addr))
-            while True:
-                try:
-                    recv = conn.recv(self.bufsize)
-                except Exception:
-                    self.close(client_name)
-                    break
-                recv_json = loads(recv)
-                if recv_json['target_clients'] == '##all##':
-                    recv_json['target_clients'] = list(self.__conns.keys())
-                    recv_json['target_clients'].append(self.__name)
-                if self.__name in recv_json['target_clients'] or 'SocketServer' in recv_json['target_clients']:
-                    self.__check_signal(thread.ident, client_flags['name'], recv_json)
-                    self.__dispatch_event(recv_json)
-                    recv_json['target_clients'].remove(self.__name)
-                recv_json['target_clients'].remove(client_flags['name'])
-                self.__forward(client_flags['name'], recv_json)
-
     def register_event(self, event_name):
         if event_name in ['on_connected', 'on_disconnected']:
             raise EventRegisteredError(f'Event {event_name} is an internal event.')
@@ -201,53 +162,6 @@ class SocketServer:
             raise EventRegisteredError(f'Event {event_name} has been registered')
         self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
         return list(self.__events.keys())
-
-    def __check_signal(self, tid, name, data):
-        if 'signal' in data:
-            signal = data['signal']
-            if signal == 'client_close':
-                self.__conns[name].shutdown(2)
-                self.__conns[name].close()
-                del self.__conns[name]
-                del self.__clients[tid]
-
-    def __dispatch_event(self, data):
-        if data['event'] in self.__events:
-            self.__mcdr_server.dispatch_event(self.__events[data['event']], (data['data'],), on_executor_thread=self.__on_executor_thread)
-
-    def __forward(self, name, data):
-        if not data['target_clients']:
-            return
-        if 'signal' in data:
-            self.send_to(data['target_clients'], data['event'], data['data'], name, data['signal'])
-        else:
-            self.send_to(data['target_clients'], data['event'], data['data'], name)
-
-    def close(self, target_client):
-        self.__check_status()
-        if target_client not in self.__conns:
-            raise SocketError('No connection from client ' + target_client)
-        self.send_to(target_client, None, None, signal='close')
-        self.__conns[target_client].shutdown(2)
-        self.__conns[target_client].close()
-        del self.__conns[target_client]
-        del self.__clients[self.__tid[target_client]]
-        del self.__tid[target_client]
-        self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, (target_client,))
-
-    def close_all(self):
-        self.__check_status()
-        try:
-            self.send_to_all(None, None, signal='close')
-        except SocketError:
-            pass
-        for n, c in self.__conns.items():
-            c.shutdown(2)
-            c.close()
-            self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, (n,))
-        self.__conns.clear()
-        self.__clients.clear()
-        self.__tid.clear()
 
     def send_to(self, target_clients, event, data, source='server_name', signal=None):
         self.__check_status()
@@ -260,7 +174,7 @@ class SocketServer:
             json = {'source': source, 'signal': signal, 'event': event, 'data': data}
         else:
             json = {'source': source, 'event': event, 'data': data}
-        byt = dumps(json, separators=separators).encode('utf-8')
+        byt = dumps(json, separators=SEPARATORS).encode('utf-8')
         errors = []
         try:
             for c in self.__conns:
@@ -278,7 +192,7 @@ class SocketServer:
             json = {'source': source, 'signal': signal, 'event': event, 'data': data}
         else:
             json = {'source': source, 'event': event, 'data': data}
-        data = dumps(json, separators=separators).encode('utf-8')
+        data = dumps(json, separators=SEPARATORS).encode('utf-8')
         errors = []
         for c in self.__conns.values():
             try:
@@ -286,6 +200,32 @@ class SocketServer:
             except Exception as e:
                 errors.append(e)
         return errors if errors else None
+
+    def close(self, target_client):
+        self.__check_status()
+        if target_client not in self.__conns:
+            raise SocketError('No connection from client ' + target_client)
+        self.send_to(target_client, None, None, signal='close')
+        self.__conns[target_client].shutdown(2)
+        self.__conns[target_client].close()
+        del self.__conns[target_client]
+        del self.__clients[self.__tid[target_client]]
+        del self.__tid[target_client]
+        self.__mcdr_server.dispatch_event(ON_DISCONNECTED_EVENT, (target_client,))
+
+    def close_all(self):
+        self.__check_status()
+        try:
+            self.send_to_all(None, None, signal='close')
+        except SocketError:
+            pass
+        for n, c in self.__conns.items():
+            c.shutdown(2)
+            c.close()
+            self.__mcdr_server.dispatch_event(ON_DISCONNECTED_EVENT, (n,))
+        self.__conns.clear()
+        self.__clients.clear()
+        self.__tid.clear()
 
     def exit(self):
         self.__check_status()
@@ -300,7 +240,76 @@ class SocketServer:
             self.__socket.shutdown(2)
         self.__socket.close()
         self.__exit = True
-        _del_socket_api_instance(self.instance_id)
+
+    def __server(self, thread):
+        self.__threads.append(thread)
+        new_thread = True
+        while True:
+            thread.setName(f'{self.__name}-{str(len(self.__threads) + 1)}[Waiting to connect]')
+            conn, addr = self.__socket.accept()
+            if len(self.__threads) < self.__max_thread and new_thread and not self.__exit:
+                new_thread = False
+                _SocketThread(self.__server, self.__thread_error)
+            client_name = self.__on_connected(thread, conn, addr)
+            while True:
+                try:
+                    recv = conn.recv(self.bufsize)
+                except Exception:
+                    self.close(client_name)
+                    break
+                recv_json = loads(recv)
+                target_clients = self.__format_target_clients_list(client_name, recv_json)
+                self.__forward(client_name, target_clients, recv_json)
+
+    def __check_status(self):
+        if self.__exit:
+            raise SocketError('Socket has been closed.')
+        elif self.__socket is None:
+            raise SocketError('Socket is not started.')
+
+    def __on_connected(self, thread, conn, addr):
+        client_flags = loads(conn.recv(self.bufsize))
+        client_name = client_flags['name']
+        self.__conns[client_name] = conn
+        self.__clients[thread.ident] = client_name
+        self.__tid[client_name] = thread.ident
+        thread.setName(f'{self.__name}-{str(len(self.__threads))}[Connected to {client_name}]')
+        self.__mcdr_server.dispatch_event(ON_CONNECTED_EVENT, (client_name, addr))
+        return client_name
+
+    def __format_target_clients_list(self, client_name, recv_json):
+        target_clients = recv_json['target_clients']
+        if target_clients == '##all##':
+            target_clients = list(self.__conns.keys())
+            target_clients.append(self.__name)
+        if client_name in target_clients:
+            target_clients.remove(client_name)
+        if self.__name in target_clients or '#SocketServer' in target_clients:
+            self.__check_signal(self.__tid[client_name], client_name, recv_json)
+            self.__dispatch_event(recv_json)
+            target_clients.remove(self.__name)
+        return target_clients
+
+    def __check_signal(self, tid, name, data):
+        if 'signal' in data:
+            signal = data['signal']
+            if signal == 'client_close':
+                self.__conns[name].shutdown(2)
+                self.__conns[name].close()
+                del self.__conns[name]
+                del self.__clients[tid]
+
+    def __dispatch_event(self, data):
+        if data['event'] in self.__events:
+            self.__mcdr_server.dispatch_event(self.__events[data['event']], (data['data'],), on_executor_thread=self.__on_executor_thread)
+
+    def __forward(self, name, target_clients, data):
+        if not target_clients:
+            return
+        if 'signal' in data:
+            self.send_to(target_clients, data['event'], data['data'], name, data['signal'])
+        else:
+            self.send_to(target_clients, data['event'], data['data'], name)
 
     def __thread_error(self, thread, error):
         self.__mcdr_server.logger.error(f'线程：{thread.name}出现错误：{str(error)}')
@@ -310,27 +319,6 @@ class SocketServer:
                 self.close(self.__clients[thread.ident])
             except SocketError:
                 pass
-
-    def __check_status(self):
-        if self.__exit:
-            raise SocketError('Socket has been closed.')
-        elif self.__socket is None:
-            raise SocketError('Socket is not started.')
-
-    """
-    def _debug_exit_all(self):
-        thread_list = threading_enumerate()
-        for t in thread_list:
-            if t.name.startswith(self.__name):
-                self.__mcdr_server.logger.debug(t.name)
-                t.kill()
-        for c in self.__conns.values():
-            c.shutdown(2)
-            c.close()
-        if self.__conns:
-            self.__socket.shutdown(2)
-        self.__socket.close()
-    """
 
 
 class SocketClient:
@@ -345,8 +333,6 @@ class SocketClient:
         self.__events = {}
         self.__connected = False
         self.__client_thread = None
-        self.__ON_CONNECTED_EVENT = LiteralEvent('{}.on_connected'.format(PLUGIN_METADATA['id']))
-        self.__ON_DISCONNECTED_EVENT = LiteralEvent('{}.on_disconnected'.format(PLUGIN_METADATA['id']))
 
     @property
     def instance_id(self):
@@ -372,7 +358,53 @@ class SocketClient:
         self.__reconnection_interval = reconnection_interval if reconnection_times >= 0 else 0
         self.__client_thread = _SocketThread(self.__client, self.__thread_error)
 
-    def __client(self, thread: Thread):
+    def register_event(self, event_name):
+        if event_name in ['on_connected', 'on_disconnected']:
+            raise EventRegisteredError(f'Event {event_name} is an internal event.')
+        elif event_name in self.__events:
+            raise EventRegisteredError(f'Event {event_name} has been registered')
+        self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
+
+    def send_to(self, target_clients: str or list, event, data, signal=None):
+        if not self.__connected:
+            raise SocketError('Not connected to the server.')
+        if not isinstance(target_clients, list):
+            target_clients = [target_clients]
+        try:
+            if signal is not None:
+                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data, 'signal': signal}, separators=SEPARATORS).encode('utf-8'))
+            else:
+                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data}, separators=SEPARATORS).encode('utf-8'))
+        except Exception as e:
+            return e
+
+    def send_to_all(self, event, data, signal=None):
+        if not self.__connected:
+            raise SocketError('Not connected to the server.')
+        try:
+            if signal is not None:
+                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data, 'signal': signal}, separators=SEPARATORS).encode('utf-8'))
+            else:
+                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data}, separators=SEPARATORS).encode('utf-8'))
+        except Exception as e:
+            return e
+
+    def reconnect(self):
+        if self.host is None:
+            raise SocketError('Need to call connect() first.')
+        self.__close()
+        self.__client_thread = _SocketThread(self.__client, self.__thread_error)
+
+    def exit(self):
+        self.__close()
+        if self.__client_thread is None:
+            return
+        try:
+            self.__client_thread.kill()
+        except Exception as e:
+            self.__mcdr_server.logger.error(str(e))
+
+    def __client(self, thread):
         retry_times = 0
         break_while = False
         while retry_times <= self.__reconnection_times:
@@ -386,10 +418,7 @@ class SocketClient:
                 continue
             else:
                 retry_times = 0
-            self.__connected = True
-            self.__client_thread.setName(self.__name + '[Connected to server]')
-            self.__socket.send(dumps({'name': self.__name}, separators=separators).encode('utf-8'))
-            self.__mcdr_server.dispatch_event(self.__ON_CONNECTED_EVENT, ())
+            self.__on_connected()
             while True:
                 try:
                     recv = self.__socket.recv(self.bufsize)
@@ -404,74 +433,32 @@ class SocketClient:
             if break_while:
                 break_while = False
                 break
-        self.__client_thread = None
         if retry_times > self.__reconnection_times:
             raise ConnectionFailedError('Connection failure times exceed the upper limit.')
 
-    def register_event(self, event_name):
-        if event_name in ['on_connected', 'on_disconnected']:
-            raise EventRegisteredError(f'Event {event_name} is an internal event.')
-        elif event_name in self.__events:
-            raise EventRegisteredError(f'Event {event_name} has been registered')
-        self.__events[event_name] = LiteralEvent('{}.{}'.format(PLUGIN_METADATA['id'], event_name))
+    def __on_connected(self):
+        self.__connected = True
+        self.__client_thread.setName(self.__name + '[Connected to server]')
+        self.__socket.send(dumps({'name': self.__name}, separators=SEPARATORS).encode('utf-8'))
+        self.__mcdr_server.logger.info(f'[{PLUGIN_METADATA["name"]}]{self.name}已与服务端建立连接')
+        self.__mcdr_server.dispatch_event(ON_CONNECTED_EVENT, ())
 
     def __dispatch_event(self, data):
         if data['event'] in self.__events:
             self.__mcdr_server.dispatch_event(self.__events[data['event']], (data['data'],), on_executor_thread=self.__on_executor_thread)
 
-    def send_to(self, target_clients: str or list, event, data, signal=None):
-        if not self.__connected:
-            raise SocketError('Not connected to the server.')
-        if not isinstance(target_clients, list):
-            target_clients = [target_clients]
-        try:
-            if signal is not None:
-                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data, 'signal': signal}, separators=separators).encode('utf-8'))
-            else:
-                self.__socket.send(dumps({'target_clients': target_clients, 'event': event, 'data': data}, separators=separators).encode('utf-8'))
-        except Exception as e:
-            return e
-
-    def send_to_all(self, event, data, signal=None):
-        if not self.__connected:
-            raise SocketError('Not connected to the server.')
-        try:
-            if signal is not None:
-                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data, 'signal': signal}, separators=separators).encode('utf-8'))
-            else:
-                self.__socket.send(dumps({'target_clients': '##all##', 'event': event, 'data': data}, separators=separators).encode('utf-8'))
-        except Exception as e:
-            return e
-
-    def __close(self, del_instance=False):
+    def __close(self):
         if self.__connected:
             try:
-                self.send_to(['SocketServer'], None, None, 'client_close')
+                self.send_to(['#SocketServer'], None, None, 'client_close')
             except SocketError:
                 pass
             self.__connected = False
         self.__socket.shutdown(2)
         self.__socket.close()
-        if del_instance:
-            _del_socket_api_instance(self.instance_id)
-        self.__mcdr_server.dispatch_event(self.__ON_DISCONNECTED_EVENT, ())
+        self.__mcdr_server.dispatch_event(ON_DISCONNECTED_EVENT, ())
 
-    def reconnect(self):
-        if self.host is None:
-            raise SocketError('Need to call connect() first.')
-        self.__close()
-        self.__client_thread = _SocketThread(self.__client, self.__thread_error)
-
-    def exit(self):
-        self.__close(True)
-        if self.__client_thread is None:
-            return
-        try:
-            self.__client_thread.kill()
-        except Exception as e:
-            self.__mcdr_server.logger.error(str(e))
-
-    def __thread_error(self, thread: Thread, error):
+    def __thread_error(self, thread, error):
         self.__client_thread = None
         if error is ConnectionFailedError:
             return

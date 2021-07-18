@@ -53,7 +53,7 @@
 
 `event_name`: 需要注册的MCDR事件名称，监听事件时请监听`socket_api.[注册的事件名]`
 
-如果事件已被注册或注册了API内置事件，将会抛出`EventRegisteredError`
+如果事件已被注册或名称与API内置事件相同，将会抛出`EventRegisteredError`
 
 触发事件时会传入ServerInterface及对方发送的信息
 
@@ -125,7 +125,7 @@
 
 `event_name`: 需要注册的MCDR事件名称，监听事件时请监听`socket_api.[注册的事件名]`
 
-如果事件已被注册或注册了API内置事件，将会抛出`EventRegisteredError`
+如果事件已被注册或名称与API内置事件相同，将会抛出`EventRegisteredError`
 
 触发事件时会传入ServerInterface及对方发送的信息
 
@@ -157,7 +157,7 @@
 
 ### API内置事件
 
-所有内置事件不受`dispatch_event_on_executor_thread`参数影响，总在任务执行者线程上触发
+所有内置事件不受`dispatch_event_on_executor_thread`参数影响，一律在任务执行者线程上触发
 
 #### `socket_api.on_connected`
 
@@ -185,26 +185,24 @@
 
 ### API内置方法
 
+#### 内置方法主要用于调试
+
 因为`SocketServer`与`SocketClient`共用同一instance_id计数器
 
 所以下文中`SocketServer`与`SocketClient`统称`SocketAPI`
 
 #### `get_socket_api_instance(socket_api_instance_id)`
 
-返回指定的`SocketAPI`实例
+返回指定的`SocketAPI`实例，`socket_api_instance_id`不存在则返回None
 
 其中`socket_api_instance_id`是`SocketAPI`实例的`instance_id`属性
 
-没有调用`exit()`就丢失了`SocketAPI`实例(比如插件重载)，导致端口无法释放，可提前获取`instance_id`并存储来防止此类问题
-
-_一般用于开发期间，正常情况下在`on_load`事件中使用`prev_plugin_module`继承`SocketAPI`实例即可_
+API只会存储最多20个`SocketAPI`实例，超过20个后，最旧的实例会被舍弃
 
 #### `get_thread_instance(thread_instance_id)`
 
-返回指定的`_SocketThread`实例
+返回指定的`_SocketThread`实例，`thread_instance_id`不存在则返回None
 
 其中`thread_instance_id`是`_SocketThread`实例的`instance_id`属性
-
-主要用于Debug
 
 `_SocketThread`与普通`threading.Thread`的主要区别在于新增一个`kill()`方法，可以强制结束自己
