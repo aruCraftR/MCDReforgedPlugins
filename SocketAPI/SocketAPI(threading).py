@@ -177,8 +177,8 @@ class SocketServer:
         byt = dumps(json, separators=SEPARATORS).encode('utf-8')
         errors = []
         try:
-            for c in self.__conns:
-                c.send(byt)
+            for n in target_clients:
+                self.__conns[n].send(byt)
         except Exception as e:
             errors.append(e)
         return errors if errors else None
@@ -192,11 +192,11 @@ class SocketServer:
             json = {'source': source, 'signal': signal, 'event': event, 'data': data}
         else:
             json = {'source': source, 'event': event, 'data': data}
-        data = dumps(json, separators=SEPARATORS).encode('utf-8')
+        byt = dumps(json, separators=SEPARATORS).encode('utf-8')
         errors = []
         for c in self.__conns.values():
             try:
-                c.send(data)
+                c.send(byt)
             except Exception as e:
                 errors.append(e)
         return errors if errors else None
