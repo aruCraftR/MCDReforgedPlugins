@@ -451,10 +451,10 @@ class SocketClient:
         if self.__connected:
             try:
                 self.send_to(['#SocketServer'], None, None, 'client_close')
+                self.__socket.shutdown(2)
             except SocketError:
                 pass
             self.__connected = False
-        self.__socket.shutdown(2)
         self.__socket.close()
         self.__mcdr_server.dispatch_event(ON_DISCONNECTED_EVENT, ())
 
