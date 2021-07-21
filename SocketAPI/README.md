@@ -10,6 +10,8 @@
 
 ### 注意：此插件处于测试阶段，可能会出现一些问题。如果出现问题，请使用issues报告
 
+### 下方文档基于SocketAPI(threading).py
+
 ## 依赖
 
 ### MCDReforged
