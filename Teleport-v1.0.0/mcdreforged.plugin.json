@@ -1,0 +1,16 @@
+{
+	"id": "teleport",
+	"version": "1.0.0",
+	"name": "Teleport",
+	"description": {
+		"en_us": "tpa/home/back command",
+		"zh_cn": "tpa/home/back 功能"
+	},
+	"author": [
+		"noeru_desu"
+	],
+	"link": "https://github.com/noeru-desu/MCDReforgedPlugins",
+	"dependencies": {
+		"online_player_api": ">=1.1.0"
+	}
+}
