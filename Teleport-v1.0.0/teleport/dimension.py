@@ -1,7 +1,7 @@
 from abc import ABC
 from typing import Tuple
 
-from here.position import Position
+from teleport.position import Position
 from mcdreforged.api.all import *
 
 OVERWORLD = 'minecraft:overworld'
