@@ -9,7 +9,7 @@
     "author": [
         "noeru_desu"
     ],
-    "link": "https://github.com/noeru-desu/MCDReforgedPlugins",
+    "link": "https://github.com/aruCraftR/MCDReforgedPlugins",
     "dependencies": {
         "online_player_api": ">=1.1.0"
     }
